@@ -1,5 +1,5 @@
 import { shapeResult } from "./client.js";
-import { billingRow, parseHtmlTable } from "./billing.js";
+import { billingPacket, parseHtmlTable } from "./billing.js";
 
 function limitOf(value, fallback = 50) {
   const n = Number(value ?? fallback);
@@ -208,32 +208,20 @@ export const toolDefs = [
   },
   {
     name: "get_billing_packet",
-    description: "One job as a billing row: driver, truck, vehicle, VIN, invoice, PO, weight class, totals, payments, balance, commission, internal billing notes, and account notes. Read-only.",
+    description: "Raw billing evidence for one job. Separates call notes, billing notes, internal note history, and account notes. Does not calculate payroll. Read-only.",
     schema: { id: { type: "string" }, companyId: { type: "string" } },
     async run(client, args) {
       const id = digits(args.id, "id");
       const options = companyOf(args);
       const call = await client.get(`/api/calls/${id}`, undefined, options);
       const accountId = call?.accountId || call?.billToAccountId || call?.account?.id;
-      const [payments, notes, account, internalNotes] = await Promise.all([
+      const [payments, internalNoteList, account, accountNoteList] = await Promise.all([
         optionalGet(client, `/api/calls/${id}/payments`, options),
-        optionalGet(client, `/api/calls/${id}/notes`, options),
+        optionalGet(client, `/api/calls/${id}/notes/`, options),
         accountId ? optionalGet(client, `/api/accounts/${accountId}`, options) : null,
-        client.getText ? client.getText(`/ajax/dispatch/${id}/internalNotes`, undefined, options).catch((err) => ({ error: err instanceof Error ? err.message : "request failed" })) : null,
+        accountId ? optionalGet(client, `/api/accounts/${accountId}/notes`, options) : null,
       ]);
-      const row = billingRow({
-        call,
-        payments: payments?.error ? [] : payments,
-        notes: notes?.error ? [] : notes,
-        account: account?.error ? {} : account,
-      });
-      if (typeof internalNotes === "string" && internalNotes && !row.internalBillingNotes) {
-        row.internalBillingNotes = internalNotes.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000);
-      }
-      return {
-        row,
-        missing: [payments, notes, account, internalNotes].filter((item) => item && item.error).map((item) => item.error),
-      };
+      return billingPacket({ call, payments, internalNoteList, account, accountNoteList });
     },
   },
   {

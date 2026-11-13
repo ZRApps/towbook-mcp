@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertGetPath, assertReportQuery } from "../src/allowlist.js";
-import { billingRow, parseHtmlTable } from "../src/billing.js";
+import { billingPacket, parseHtmlTable } from "../src/billing.js";
 import { createClient } from "../src/client.js";
 import { toolDefs } from "../src/tools.js";
 
@@ -14,17 +14,43 @@ test("billing paths are readable and writes stay refused", () => {
   assert.equal(assertReportQuery({ reportType: "CallWorkflow", dateStart: "2026-11-12" }).path, "/api/reports");
 });
 
-test("billing row keeps notes and payment type", () => {
-  const row = billingRow({
-    call: { callNumber: 10, invoiceNumber: "A-1", invoiceTotal: 50, balanceDue: 0, driver: "Pat Example" },
-    payments: [{ paymentType: "Cash", amount: 50, paymentDate: "2026-11-12" }],
-    notes: [{ text: "internal yard note" }],
-    account: { name: "Example Account", accountNotes: "do not bill fuel" },
+test("billing packet keeps note kinds separate and does not invent payroll", () => {
+  const packet = billingPacket({
+    call: {
+      callNumber: 10,
+      notes: "dispatch note",
+      invoiceItems: [{ name: "discount", price: -10, quantity: 1, itemTotal: -10 }],
+      invoiceTotal: 40,
+      balanceDue: 0,
+      attributes: [{ attributeId: 47, value: "bill this account" }],
+      assets: [{ year: 2020, make: "Example", model: "Truck", vin: "VINTEST", drivers: [{ driver: { id: 1, name: "Pat Example" }, truck: { id: 2, name: "Unit 1" } }] }],
+      commissions: { totalTicketValue: 100, drivers: [{ driverId: 1, value: 100 }] },
+    },
+    payments: [{ typeName: "Card", amount: 40 }],
+    internalNoteList: [{ id: 9, content: "hours note", ownerName: "Clerk", ownerUserId: 3, createDate: "2026-11-12T00:00:00" }],
+    account: { notes: "account standing note" },
+    accountNoteList: [{ id: 4, note: "account history", authorName: "Clerk", createDate: "2026-11-01" }],
   });
-  assert.equal(row.internalBillingNotes, "internal yard note");
-  assert.equal(row.accountNotes, "do not bill fuel");
-  assert.equal(row.payments[0].type, "Cash");
-  assert.equal(JSON.stringify(row).includes("super-secret"), false);
+  assert.equal(packet.callNotes, "dispatch note");
+  assert.equal(packet.billingNotes, "bill this account");
+  assert.equal(packet.internalNotes[0].text, "hours note");
+  assert.equal(packet.internalNotes[0].author, "Clerk");
+  assert.equal(packet.accountNotes, "account standing note");
+  assert.equal(packet.drivers[0].truckName, "Unit 1");
+  assert.equal(packet.invoiceItems[0].itemTotal, -10);
+  assert.equal(packet.commissionAllocation.meaning.includes("Not calculated payroll"), true);
+  assert.equal(JSON.stringify(packet).includes("internalBillingNotes"), false);
+  assert.equal(packet.warnings.length, 1);
+});
+
+test("missing internal notes are a warning, not a copy of call notes", () => {
+  const packet = billingPacket({
+    call: { notes: "dispatch note", attributes: [] },
+    internalNoteList: { error: "TowBook GET /api/calls/1/notes returned 404" },
+  });
+  assert.deepEqual(packet.internalNotes, []);
+  assert.equal(packet.callNotes, "dispatch note");
+  assert.match(packet.warnings.join(" "), /Internal note history was not loaded/);
 });
 
 test("commission report parses an HTML table and does not post", async () => {

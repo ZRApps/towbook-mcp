@@ -28,43 +28,120 @@ export function parseHtmlTable(html) {
   };
 }
 
-export function billingRow({ call = {}, payments = [], notes = [], account = {} } = {}) {
-  const list = Array.isArray(payments) ? payments : payments?.items || payments?.payments || [];
-  const noteList = Array.isArray(notes) ? notes : notes?.items || notes?.notes || [];
-  const contact = (call.contacts || []).find((item) => item?.driversLicense) || call.contacts?.[0] || {};
-  const paymentSummary = list.map((payment) => ({
-    type: payment.paymentType || payment.type || payment.method || null,
-    amount: payment.amount ?? null,
-    date: payment.paymentDate || payment.date || payment.createDate || null,
-    reference: payment.referenceNumber || payment.checkNumber || null,
-  }));
-  return {
-    driver: call.driver || call.owner?.name || null,
-    driverLicenseNumber: call.driverLicenseNumber || call.driversLicense || contact.driversLicense || null,
-    truck: call.truck || null,
-    dateTime: call.createDate || call.completedDate || null,
-    vehicle: call.vehicle || call.assets?.[0]?.description || null,
-    vin: call.vin || call.assets?.[0]?.vin || null,
-    callNumber: call.callNumber ?? null,
-    invoiceNumber: call.invoiceNumber || null,
-    account: call.account?.name || call.billToAccountName || call.accountName || account.name || null,
-    purchaseOrderNumber: call.purchaseOrderNumber || call.poNumber || null,
-    weightClass: call.weightClass || call.weightClassName || call.assets?.[0]?.weightClass || null,
-    invoiceTotal: call.invoiceTotal ?? null,
-    payments: paymentSummary,
-    paymentsTotal: call.paymentsApplied ?? null,
-    balanceDue: call.balanceDue ?? account.balance ?? null,
-    paymentStatus: call.paymentStatus || call.status?.name || null,
-    driverBase: call.driverBase ?? null,
-    commission: call.commission ?? call.commissions ?? null,
-    internalBillingNotes: call.billingNotes || noteText(noteList) || call.notes || "",
-    accountNotes: account.accountNotes || account.notes || "",
-  };
+function nameOf(value) {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  return value.name || null;
 }
 
-function noteText(notes) {
-  return notes
-    .map((note) => note?.text || note?.note || note?.body || note?.value || "")
-    .filter(Boolean)
-    .join("\n");
+export function assignmentsFrom(call) {
+  const rows = [];
+  for (const asset of call.assets || []) {
+    const listed = Array.isArray(asset.drivers) && asset.drivers.length
+      ? asset.drivers
+      : [{ driver: asset.driver, truck: asset.truck }];
+    for (const row of listed) {
+      const driver = row.driver || null;
+      const truck = row.truck || asset.truck || null;
+      if (!driver && !truck) continue;
+      rows.push({
+        driverId: driver?.id ?? row.driverId ?? null,
+        driverName: driver?.name ?? null,
+        truckId: truck?.id ?? null,
+        truckName: truck?.name ?? null,
+        responseStatusId: driver?.responseStatusId ?? null,
+      });
+    }
+  }
+  return rows;
+}
+
+function vehicleOf(asset) {
+  if (!asset) return null;
+  const body = nameOf(asset.bodyType);
+  const label = [asset.year, asset.make, asset.model, body].filter(Boolean).join(" ");
+  return label || null;
+}
+
+function attributeValue(call, attributeId) {
+  const found = (call.attributes || []).find((item) => item.attributeId === attributeId);
+  return found ? found.value ?? "" : null;
+}
+
+export function billingPacket({ call = {}, payments, internalNoteList, account, accountNoteList } = {}) {
+  const warnings = [];
+  const people = assignmentsFrom(call);
+  const asset = call.assets?.[0] || null;
+  const weightClass = call.weightClass || call.weightClassName || asset?.weightClass || asset?.weightClassName || null;
+  if (!weightClass) warnings.push("No weightClass field on the job. It was not inferred.");
+
+  let internalNotes = [];
+  if (internalNoteList?.error) {
+    warnings.push(`Internal note history was not loaded: ${internalNoteList.error}`);
+  } else if (!Array.isArray(internalNoteList)) {
+    warnings.push("Internal note history was not a list. Call notes were not copied into it.");
+  } else {
+    internalNotes = internalNoteList.map((note) => ({
+      id: note.id ?? null,
+      text: note.content ?? note.text ?? note.note ?? "",
+      author: note.ownerName ?? note.authorName ?? null,
+      authorId: note.ownerUserId ?? note.authorId ?? null,
+      timestamp: note.createDate ?? note.date ?? null,
+    }));
+    if (internalNotes.length === 0) warnings.push("Internal note history is empty.");
+  }
+
+  const billingNotes = attributeValue(call, 47);
+  if (billingNotes === null) warnings.push("Billing notes attribute 47 was not on the job.");
+
+  let accountNotes = "";
+  let accountNoteHistory = [];
+  if (!account) warnings.push("No bill-to account id on the job.");
+  else if (account.error) warnings.push(`Account record was not loaded: ${account.error}`);
+  else accountNotes = account.notes || account.accountNotes || "";
+
+  if (accountNoteList?.error) warnings.push(`Account note history was not loaded: ${accountNoteList.error}`);
+  else if (Array.isArray(accountNoteList)) {
+    accountNoteHistory = accountNoteList.map((note) => ({
+      id: note.id ?? null,
+      title: note.title ?? null,
+      text: note.note ?? note.text ?? note.content ?? "",
+      author: note.authorName ?? null,
+      authorId: note.authorId ?? null,
+      timestamp: note.createDate ?? note.date ?? null,
+      type: note.type ?? null,
+    }));
+  }
+
+  const paymentList = Array.isArray(payments) ? payments : [];
+  if (payments?.error) warnings.push(`Payments were not loaded: ${payments.error}`);
+
+  return {
+    callNumber: call.callNumber ?? null,
+    invoiceNumber: call.invoiceNumber || null,
+    purchaseOrderNumber: call.purchaseOrderNumber || call.poNumber || null,
+    drivers: people,
+    driver: people[0]?.driverName || null,
+    truck: people[0]?.truckName || null,
+    vehicle: vehicleOf(asset),
+    vin: asset?.vin || null,
+    weightClass,
+    invoiceItems: call.invoiceItems || [],
+    invoiceSubtotal: call.invoiceSubtotal ?? null,
+    invoiceTax: call.invoiceTax ?? null,
+    invoiceTotal: call.invoiceTotal ?? null,
+    payments: paymentList,
+    balanceDue: call.balanceDue ?? null,
+    callNotes: call.notes || "",
+    billingNotes: billingNotes || "",
+    internalNotes,
+    accountNotes,
+    accountNoteHistory,
+    commissionAllocation: {
+      meaning: "TowBook allocation settings. Not calculated payroll earnings.",
+      totalTicketValue: call.commissions?.totalTicketValue ?? null,
+      drivers: call.commissions?.drivers || [],
+    },
+    warnings,
+  };
 }

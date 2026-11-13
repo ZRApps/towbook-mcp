@@ -96,10 +96,12 @@ export function assertGetPath(path) {
     throw new Error("Refused path");
   }
   const clean = path.split("?")[0];
-  if (!(clean.startsWith("/api/") || clean.startsWith("/Reports/") || clean.startsWith("/ajax/dispatch/"))) {
+  const stripped = clean.replace(/\/+$/, "") || "/";
+  if (!(stripped.startsWith("/api/") || stripped.startsWith("/Reports/") || stripped.startsWith("/ajax/dispatch/"))) {
     throw new Error("Refused path outside the read allowlist");
   }
-  if (EXACT.has(clean) || PATTERNS.some((re) => re.test(clean))) return clean;
+  if (EXACT.has(clean)) return clean;
+  if (EXACT.has(stripped) || PATTERNS.some((re) => re.test(stripped))) return stripped;
   throw new Error(`Refused path ${clean}. This server is read-only and allowlisted.`);
 }
 
