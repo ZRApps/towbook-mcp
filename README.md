@@ -80,15 +80,13 @@ The cookie dies when you log out, or when TowBook expires the session. If tools 
 Node 20 or newer.
 
 ```bash
-git clone <private-repo-url> towbook-mcp
+git clone https://github.com/ZRApps/towbook-mcp.git
 cd towbook-mcp
 npm install
 node src/check.js
 ```
 
-`check` calls `GET /api/companydispatchstatuses` and prints a status line. It does not print the cookie or the response body. A line starting with `ok` means the session works.
-
-Until the repository is public, copy this folder from the machine where it was built, or clone the private repo you were given.
+A line starting with `ok` means the session works. The check does not print the cookie or the response body.
 
 ## 3. Connect Claude Desktop
 
@@ -148,7 +146,9 @@ If the dialog has no STDIO type, you are in standard Chat. Switch to Codex or Wo
 
 ## Repository
 
-Private until the owner explicitly publishes it. The public site will link the git repo only after that.
+Source: https://github.com/ZRApps/towbook-mcp
+
+The cookie file, session values, and account records are not in this repository. Keep `~/.config/towbook-mcp/cookie.txt` on your machine only.
 
 ## Development
 

@@ -1,7 +1,7 @@
 {
   "name": "towbook-mcp",
   "version": "0.1.0",
-  "private": true,
+  "license": "MIT",
   "description": "Read-only local MCP server for a TowBook session. No writes.",
   "type": "module",
   "bin": {
