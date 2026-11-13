@@ -39,6 +39,15 @@ The cookie never goes in git, Slack, or this README. It lives in a file only you
 
 Pass `companyId` when you have more than one company. It is sent as `X-Company`.
 
+The board list is a short summary. It does not include invoices, payments, commissions, or notes. Use these when you need the billing row:
+
+- `commission_report` reads the payroll table: driver, license, truck, vehicle, VIN, call, invoice, account, PO, weight class, totals, payments, balance, payment status, driver base, commission. TowBook leaves the note columns blank on that report.
+- `get_billing_packet` fills the gap: internal billing notes and account notes, plus cash, check, or card on each payment.
+- `get_account`, `get_job`, `get_job_payments`, `get_invoice`, and `list_payment_types` are the underlying records.
+- `run_report` with `reportType` `CallWorkflow` is a query, not a save. Those rows include `billingNotes`. It cannot create or change a call.
+
+Photos, file uploads, and every write stay off.
+
 ## 1. Get the cookie
 
 You need a TowBook login. The cookie is the session. Treat it like a password.

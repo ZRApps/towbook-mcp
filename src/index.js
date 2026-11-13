@@ -25,6 +25,15 @@ const schemas = {
   list_dispatch_statuses: { companyId: text },
   get_config: { scope: text, companyId: text },
   list_notifications: { companyId: text },
+  get_account: { id: z.string(), companyId: text },
+  get_job: { id: z.string(), companyId: text },
+  get_job_payments: { id: z.string(), companyId: text },
+  get_invoice: { id: z.string(), companyId: text },
+  get_billing_packet: { id: z.string(), companyId: text },
+  list_payment_types: { companyId: text },
+  list_customer_accounts: { limit: number, companyId: text },
+  commission_report: { dateStart: text, dateEnd: text, driverId: text, companyId: text },
+  run_report: { reportType: z.string(), dateStart: text, dateEnd: text, dateRangeField: text, companyId: text },
 };
 
 function textResult(value) {

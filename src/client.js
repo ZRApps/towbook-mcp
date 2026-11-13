@@ -1,4 +1,4 @@
-import { buildUrl } from "./allowlist.js";
+import { assertReportQuery, buildUrl } from "./allowlist.js";
 import { loadCookie } from "./cookie.js";
 
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -6,38 +6,52 @@ const DEFAULT_TIMEOUT_MS = 20000;
 export function createClient({ cookie, fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, companyId } = {}) {
   const session = cookie || loadCookie();
 
-  async function get(path, query, { companyId: callCompany } = {}) {
-    const url = buildUrl(path, query);
+  async function send(method, url, headers, body) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchImpl(url, {
+        method,
+        headers,
+        body,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err && err.name === "AbortError") throw new Error(`TowBook timed out on ${method} ${url.pathname}`);
+      throw new Error(`TowBook request failed for ${method} ${url.pathname}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function headersFor(callCompany, accept) {
     const headers = {
-      Accept: "application/json, text/plain, */*",
+      Accept: accept,
       "X-Requested-With": "XMLHttpRequest",
       Cookie: session,
     };
     const company = callCompany || companyId;
     if (company) headers["X-Company"] = String(company);
+    return headers;
+  }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response;
-    try {
-      response = await fetchImpl(url, { method: "GET", headers, redirect: "manual", signal: controller.signal });
-    } catch (err) {
-      if (err && err.name === "AbortError") throw new Error(`TowBook timed out on GET ${url.pathname}`);
-      throw new Error(`TowBook request failed for GET ${url.pathname}`);
-    } finally {
-      clearTimeout(timer);
-    }
-
+  async function readResponse(response, method, pathname) {
     if (response.status >= 300 && response.status < 400) {
-      throw new Error(`TowBook redirected GET ${url.pathname} (${response.status}). Session may have expired.`);
+      throw new Error(`TowBook redirected ${method} ${pathname} (${response.status}). Session may have expired.`);
     }
     const text = await response.text();
     if (response.status === 401 || response.status === 403 || looksLikeLogin(text)) {
-      throw new Error(`TowBook rejected GET ${url.pathname} (${response.status}). Refresh the cookie.`);
+      throw new Error(`TowBook rejected ${method} ${pathname} (${response.status}). Refresh the cookie.`);
     }
-    if (!response.ok) {
-      throw new Error(`TowBook GET ${url.pathname} returned ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`TowBook ${method} ${pathname} returned ${response.status}`);
+    return text;
+  }
+
+  async function get(path, query, options = {}) {
+    const url = buildUrl(path, query);
+    const response = await send("GET", url, headersFor(options.companyId, "application/json, text/plain, */*"));
+    const text = await readResponse(response, "GET", url.pathname);
     if (!text) return null;
     try {
       return JSON.parse(text);
@@ -46,7 +60,28 @@ export function createClient({ cookie, fetchImpl = fetch, timeoutMs = DEFAULT_TI
     }
   }
 
-  return { get };
+  async function getText(path, query, options = {}) {
+    const url = buildUrl(path, query);
+    const response = await send("GET", url, headersFor(options.companyId, "text/html, */*"));
+    return readResponse(response, "GET", url.pathname);
+  }
+
+  async function queryReport(body, options = {}) {
+    const query = assertReportQuery(body);
+    const url = buildUrl(query.path);
+    const headers = headersFor(options.companyId, "application/json");
+    headers["Content-Type"] = "application/json";
+    const response = await send("POST", url, headers, JSON.stringify(query.body));
+    const text = await readResponse(response, "POST", url.pathname);
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("TowBook report did not return JSON");
+    }
+  }
+
+  return { get, getText, queryReport };
 }
 
 function looksLikeLogin(text) {

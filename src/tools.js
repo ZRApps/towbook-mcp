@@ -1,4 +1,5 @@
 import { shapeResult } from "./client.js";
+import { billingRow, parseHtmlTable } from "./billing.js";
 
 function limitOf(value, fallback = 50) {
   const n = Number(value ?? fallback);
@@ -8,6 +9,19 @@ function limitOf(value, fallback = 50) {
 
 function companyOf(args) {
   return args?.companyId ? { companyId: args.companyId } : {};
+}
+
+function digits(value, label) {
+  if (!/^\d+$/.test(String(value || ""))) throw new Error(`${label} must be digits.`);
+  return String(value);
+}
+
+async function optionalGet(client, path, options) {
+  try {
+    return await client.get(path, undefined, options);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "request failed" };
+  }
 }
 
 export const toolDefs = [
@@ -158,6 +172,129 @@ export const toolDefs = [
     schema: { companyId: { type: "string" } },
     async run(client, args) {
       return shapeResult(await client.get("/api/eventnotifications", undefined, companyOf(args)), { limit: 100 });
+    },
+  },
+  {
+    name: "get_account",
+    description: "Get one account, including account notes, address, balance, and credit hold. Read-only.",
+    schema: { id: { type: "string" }, companyId: { type: "string" } },
+    async run(client, args) {
+      return client.get(`/api/accounts/${digits(args.id, "id")}`, undefined, companyOf(args));
+    },
+  },
+  {
+    name: "get_job",
+    description: "Get one job/call with invoice, vehicle, PO, and billing fields when TowBook includes them. Read-only. Not the short board summary.",
+    schema: { id: { type: "string" }, companyId: { type: "string" } },
+    async run(client, args) {
+      return client.get(`/api/calls/${digits(args.id, "id")}`, undefined, companyOf(args));
+    },
+  },
+  {
+    name: "get_job_payments",
+    description: "Payments on one job. Includes payment type so cash, check, and card can be told apart. Read-only.",
+    schema: { id: { type: "string" }, companyId: { type: "string" } },
+    async run(client, args) {
+      return client.get(`/api/calls/${digits(args.id, "id")}/payments`, undefined, companyOf(args));
+    },
+  },
+  {
+    name: "get_invoice",
+    description: "Invoice for one job. Read-only.",
+    schema: { id: { type: "string" }, companyId: { type: "string" } },
+    async run(client, args) {
+      return client.get(`/api/calls/${digits(args.id, "id")}/invoice`, undefined, companyOf(args));
+    },
+  },
+  {
+    name: "get_billing_packet",
+    description: "One job as a billing row: driver, truck, vehicle, VIN, invoice, PO, weight class, totals, payments, balance, commission, internal billing notes, and account notes. Read-only.",
+    schema: { id: { type: "string" }, companyId: { type: "string" } },
+    async run(client, args) {
+      const id = digits(args.id, "id");
+      const options = companyOf(args);
+      const call = await client.get(`/api/calls/${id}`, undefined, options);
+      const accountId = call?.accountId || call?.billToAccountId || call?.account?.id;
+      const [payments, notes, account, internalNotes] = await Promise.all([
+        optionalGet(client, `/api/calls/${id}/payments`, options),
+        optionalGet(client, `/api/calls/${id}/notes`, options),
+        accountId ? optionalGet(client, `/api/accounts/${accountId}`, options) : null,
+        client.getText ? client.getText(`/ajax/dispatch/${id}/internalNotes`, undefined, options).catch((err) => ({ error: err instanceof Error ? err.message : "request failed" })) : null,
+      ]);
+      const row = billingRow({
+        call,
+        payments: payments?.error ? [] : payments,
+        notes: notes?.error ? [] : notes,
+        account: account?.error ? {} : account,
+      });
+      if (typeof internalNotes === "string" && internalNotes && !row.internalBillingNotes) {
+        row.internalBillingNotes = internalNotes.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000);
+      }
+      return {
+        row,
+        missing: [payments, notes, account, internalNotes].filter((item) => item && item.error).map((item) => item.error),
+      };
+    },
+  },
+  {
+    name: "list_payment_types",
+    description: "Payment type names, including cash, check, and card. Read-only.",
+    schema: { companyId: { type: "string" } },
+    async run(client, args) {
+      return client.get("/api/paymentTypes", undefined, companyOf(args));
+    },
+  },
+  {
+    name: "list_customer_accounts",
+    description: "Account records, including account notes when TowBook returns them on the list. Read-only.",
+    schema: { limit: { type: "number" }, companyId: { type: "string" } },
+    async run(client, args) {
+      return shapeResult(await client.get("/api/accounts", undefined, companyOf(args)), { limit: limitOf(args.limit, 100) });
+    },
+  },
+  {
+    name: "commission_report",
+    description: "Driver commission report (the payroll table: driver, license, truck, invoice, PO, weight class, totals, payments, balance, driver base, commission). Read-only HTML. Note columns are usually blank in this report; use get_billing_packet for notes.",
+    schema: {
+      dateStart: { type: "string" },
+      dateEnd: { type: "string" },
+      driverId: { type: "string" },
+      companyId: { type: "string" },
+    },
+    async run(client, args) {
+      const html = await client.getText("/Reports/Payroll", {
+        dateStart: args.dateStart,
+        dateEnd: args.dateEnd,
+        driverId: args.driverId,
+      }, companyOf(args));
+      const parsed = parseHtmlTable(html);
+      return { count: parsed.rows.length, headers: parsed.headers, rows: parsed.rows.slice(0, 200) };
+    },
+  },
+  {
+    name: "run_report",
+    description: "Run a TowBook read report such as CallWorkflow. This is a query, not a save. CallWorkflow rows include billingNotes. Account notes are not on the row; use get_account for those. Read-only.",
+    schema: {
+      reportType: { type: "string" },
+      dateStart: { type: "string" },
+      dateEnd: { type: "string" },
+      dateRangeField: { type: "string" },
+      companyId: { type: "string" },
+    },
+    async run(client, args) {
+      const data = await client.queryReport({
+        reportType: args.reportType,
+        dateStart: args.dateStart,
+        dateEnd: args.dateEnd,
+        dateRangeField: args.dateRangeField,
+        companyId: args.companyId,
+      }, companyOf(args));
+      const rows = data?.reportData || data?.items || [];
+      return {
+        count: Array.isArray(rows) ? rows.length : 0,
+        rows: Array.isArray(rows) ? rows.slice(0, 200) : data,
+        truncated: Array.isArray(rows) && rows.length > 200,
+      };
     },
   },
 ];

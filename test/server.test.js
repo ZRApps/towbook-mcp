@@ -19,17 +19,26 @@ test("server lists only read tools and returns a board summary", async () => {
   const listed = await mcp.listTools();
   const names = listed.tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "commission_report",
+    "get_account",
+    "get_billing_packet",
     "get_call",
     "get_call_request",
     "get_config",
+    "get_invoice",
+    "get_job",
+    "get_job_payments",
     "list_accounts",
     "list_board_calls",
     "list_call_requests",
+    "list_customer_accounts",
     "list_dispatch_statuses",
     "list_drivers",
     "list_groups",
     "list_notifications",
+    "list_payment_types",
     "list_quotes",
+    "run_report",
     "search_calls",
   ]);
   assert.equal(listed.tools.every((t) => t.annotations?.readOnlyHint === true), true);
