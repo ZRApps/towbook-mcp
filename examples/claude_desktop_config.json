@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "towbook": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/towbook-mcp/src/index.js"],
+      "env": {
+        "TOWBOOK_COOKIE_FILE": "/Users/YOU/.config/towbook-mcp/cookie.txt"
+      }
+    }
+  }
+}

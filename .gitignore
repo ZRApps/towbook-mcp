@@ -1,0 +1,8 @@
+node_modules/
+.env
+.env.*
+cookie.txt
+*.har
+*.log
+.DS_Store
+coverage/
