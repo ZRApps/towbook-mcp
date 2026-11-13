@@ -23,7 +23,7 @@ test("billing packet keeps note kinds separate and does not invent payroll", () 
       invoiceTotal: 40,
       balanceDue: 0,
       attributes: [{ attributeId: 47, value: "bill this account" }],
-      assets: [{ year: 2020, make: "Example", model: "Truck", vin: "VINTEST", drivers: [{ driver: { id: 1, name: "Pat Example" }, truck: { id: 2, name: "Unit 1" } }] }],
+      assets: [{ year: 2020, make: "Example", model: "Truck", vin: "VINTEST", bodyType: { id: 1, name: "Heavy" }, drivers: [{ driver: { id: 1, name: "Pat Example" }, truck: { id: 2, name: "Unit 1" } }] }],
       commissions: { totalTicketValue: 100, drivers: [{ driverId: 1, value: 100 }] },
     },
     payments: [{ typeName: "Card", amount: 40 }],
@@ -40,7 +40,8 @@ test("billing packet keeps note kinds separate and does not invent payroll", () 
   assert.equal(packet.invoiceItems[0].itemTotal, -10);
   assert.equal(packet.commissionAllocation.meaning.includes("Not calculated payroll"), true);
   assert.equal(JSON.stringify(packet).includes("internalBillingNotes"), false);
-  assert.equal(packet.warnings.length, 1);
+  assert.equal(packet.weightClass, "Heavy");
+  assert.equal(packet.warnings.length, 0);
 });
 
 test("missing internal notes are a warning, not a copy of call notes", () => {

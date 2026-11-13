@@ -58,9 +58,12 @@ export function assignmentsFrom(call) {
 
 function vehicleOf(asset) {
   if (!asset) return null;
-  const body = nameOf(asset.bodyType);
-  const label = [asset.year, asset.make, asset.model, body].filter(Boolean).join(" ");
+  const label = [asset.year, asset.make, asset.model].filter(Boolean).join(" ");
   return label || null;
+}
+
+function weightClassOf(call, asset) {
+  return call.weightClass || call.weightClassName || asset?.weightClass || asset?.weightClassName || nameOf(asset?.bodyType) || null;
 }
 
 function attributeValue(call, attributeId) {
@@ -72,8 +75,8 @@ export function billingPacket({ call = {}, payments, internalNoteList, account, 
   const warnings = [];
   const people = assignmentsFrom(call);
   const asset = call.assets?.[0] || null;
-  const weightClass = call.weightClass || call.weightClassName || asset?.weightClass || asset?.weightClassName || null;
-  if (!weightClass) warnings.push("No weightClass field on the job. It was not inferred.");
+  const weightClass = weightClassOf(call, asset);
+  if (!weightClass) warnings.push("No weight class on the job or its body type.");
 
   let internalNotes = [];
   if (internalNoteList?.error) {
